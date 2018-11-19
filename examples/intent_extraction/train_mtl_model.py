@@ -23,7 +23,7 @@ from os import path
 from tensorflow.python.keras.utils import to_categorical
 
 from nlp_architect.contrib.tensorflow.python.keras.callbacks import ConllCallback
-from nlp_architect.data.intent_datasets import SNIPS
+from nlp_architect.data.intent_datasets import SNIPS, RasaNlu
 from nlp_architect.models.intent_extraction import MultiTaskIntentModel
 from nlp_architect.utils.embedding import get_embedding_matrix, load_word_embeddings
 from nlp_architect.utils.generic import one_hot
@@ -49,37 +49,43 @@ def validate_input_args():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-b', type=int, default=10,
+    parser.add_argument('-b', type=int, default=4,
                         help='Batch size')
-    parser.add_argument('-e', type=int, default=10,
+    parser.add_argument('-e', type=int, default=100,
                         help='Number of epochs')
-    parser.add_argument('--dataset_path', type=validate_existing_directory, required=True,
+    parser.add_argument('--dataset_path', type=validate_existing_directory,
+                        default='../../data/Rasa/',
+                        #default='../../data/2017-06-custom-intent-engines/',
                         help='dataset directory')
-    parser.add_argument('--sentence_length', type=int, default=30,
+    parser.add_argument('--sentence_length', type=int, default=100,
                         help='Max sentence length')
-    parser.add_argument('--token_emb_size', type=int, default=100,
+    parser.add_argument('--token_emb_size', type=int, default=32,
                         help='Token features embedding vector size')
-    parser.add_argument('--intent_hidden_size', type=int, default=100,
+    parser.add_argument('--intent_hidden_size', type=int, default=16,
                         help='Intent detection LSTM hidden size')
-    parser.add_argument('--lstm_hidden_size', type=int, default=150,
+    parser.add_argument('--lstm_hidden_size', type=int, default=8,
                         help='Slot tags LSTM hidden size')
-    parser.add_argument('--tagger_dropout', type=float, default=0.5,
+    parser.add_argument('--tagger_dropout', type=float, default=0.01,
                         help='Slot tags dropout value')
     parser.add_argument('--embedding_model', type=validate_existing_filepath,
                         help='Path to word embedding model file')
     parser.add_argument('--use_cudnn', default=False, action='store_true',
                         help='use CUDNN based LSTM cells')
-    parser.add_argument('--model_path', type=str, default='model.h5',
+    parser.add_argument('--model_path', type=str, default='../../data/model.h5',
                         help='Model file path')
-    parser.add_argument('--model_info_path', type=str, default='model_info.dat',
+    parser.add_argument('--model_info_path', type=str, default='../../data/model_info.dat',
                         help='Path for saving model topology')
     args = parser.parse_args()
-    validate_input_args()
+    #validate_input_args()
 
     # load dataset
     print('Loading dataset')
-    dataset = SNIPS(path=args.dataset_path,
-                    sentence_length=args.sentence_length)
+
+    #dataset = SNIPS(path=args.dataset_path,
+    #              sentence_length=args.sentence_length)
+
+    dataset = RasaNlu(path=args.dataset_path,
+                   sentence_length=args.sentence_length)
 
     train_x, train_char, train_i, train_y = dataset.train_set
     test_x, test_char, test_i, test_y = dataset.test_set

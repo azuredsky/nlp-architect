@@ -24,7 +24,7 @@ import numpy as np
 from nlp_architect.utils.generic import pad_sentences
 from nlp_architect.utils.text import SpacyInstance, Vocabulary, character_vector_generator, \
     word_vector_generator
-
+import re
 
 class IntentDataset(object):
     """
@@ -64,7 +64,7 @@ class IntentDataset(object):
         for idx, d in enumerate(chars_vectors):
             d = d[:self.sentence_len]
             zeros[idx, :d.shape[0]] = d
-        chars_vectors = zeros.astype(dtype=np.int32)
+        chars_vectors = zeros.astype(dtype=np.float16)
 
         self.vecs['train'] = [text_vectors[:train_size],
                               chars_vectors[:train_size],
@@ -245,11 +245,120 @@ class SNIPS(IntentDataset):
         data = {}
         for f in sorted(files):
             fname = os.path.join(self.dataset_root, f)
+
             intent = f.split(os.sep)[0]
+            intent = intent.split('/')[0]
             fdata = json.load(open(fname, encoding='utf-8', errors='ignore'))
+            print(fdata[intent])
             entries = self._parse_json([d['data'] for d in fdata[intent]])
             data[intent] = entries
         return data
+
+    def _parse_json(self, data):
+        tok = SpacyInstance(disable=['tagger', 'ner', 'parser', 'vectors', 'textcat'])
+        sentences = []
+        for s in data:
+            tokens = []
+            tags = []
+            for t in s:
+                new_tokens = tok.tokenize(t['text'].strip())
+                tokens += new_tokens
+                ent = t.get('entity', None)
+                if ent is not None:
+                    tags += self._create_tags(ent, len(new_tokens))
+                else:
+                    tags += ['O'] * len(new_tokens)
+            sentences.append((tokens, tags))
+        return sentences
+
+    @staticmethod
+    def _create_tags(tag, length):
+        labels = ['B-' + tag]
+        if length > 1:
+            for _ in range(length - 1):
+                labels.append('I-' + tag)
+        return labels
+
+class RasaNlu(IntentDataset):
+    """
+    RASA NLU dataset class
+
+    Args:
+            path (str): dataset path
+            sentence_length (int, optional): max sentence length
+            word_length (int, optional): max word length
+    """
+    train_files = 'rasa_dataset_training.json'
+    test_files = 'rasa_dataset_testing.json'
+
+    files = ['train', 'test']
+
+    def __init__(self, path, sentence_length=30, word_length=12):
+        if path is None or not os.path.isdir(path):
+            print('invalid path for RasaNlu dataset loader')
+            sys.exit(0)
+        self.dataset_root = path
+        train_set_raw, test_set_raw = self._load_dataset()
+        super(RasaNlu, self).__init__(sentence_length=sentence_length,
+                                    word_length=word_length)
+        self._load_data(train_set_raw, test_set_raw)
+
+    def _load_dataset(self):
+        """returns a tuple of train/test with 3-tuple of tokens, tags, intent_type"""
+        train_data = self._load_intents(self.train_files)
+        test_data = self._load_intents(self.test_files)
+        train = [(t, l, i) for i in sorted(train_data) for t, l in train_data[i]]
+        test = [(t, l, i) for i in sorted(test_data) for t, l in test_data[i]]
+        return train, test
+
+    def _load_intents(self, files):
+        data = {}
+        fname = os.path.join(self.dataset_root, files)
+        tmp_fname = os.path.join(self.dataset_root, 'tmp'+files)
+        chinese = re.compile(r'(?P<string>([\u4e00-\u9fa5]+))')
+
+        with open(fname, 'rb') as load_f:
+            load_dict = json.load(load_f)
+            with open(tmp_fname, 'w') as f:
+                json.dump(load_dict, f)
+        with open(tmp_fname, 'rb') as load_f:
+            load_dict = json.load(load_f)
+            data = load_dict['rasa_nlu_data']
+            common_examples = data.get("common_examples", [])
+            intent_examples = data.get("intent_examples", [])
+            entity_examples = data.get("entity_examples", [])
+            all_examples = common_examples + intent_examples + entity_examples
+
+            entries = []
+            sentences = []
+            train_data = {}
+            for ex in all_examples:
+                intent = ex.get("intent")
+
+                if intent not in train_data:
+                    sentences = []
+
+                entries = self._parse_json_jieba(ex, sentences)
+                train_data[intent] = entries
+
+        return train_data
+
+    def _parse_json_jieba(self, data, sentences):
+        import jieba
+        tokens = []
+        tags = ['O'] * len(data['text'])
+        new_tokens = jieba.tokenize(data['text'].strip())
+        tokens += [word for (word, start, end) in new_tokens]
+        for s in data['entities']:
+
+            ent = s.get('entity', None)
+            start = s.get('start', None)
+            end = s.get('end', None)
+
+            tags[start:end] = self._create_tags(ent, len(s))
+
+        sentences.append((tokens, tags))
+        return sentences
 
     def _parse_json(self, data):
         tok = SpacyInstance(disable=['tagger', 'ner', 'parser', 'vectors', 'textcat'])
